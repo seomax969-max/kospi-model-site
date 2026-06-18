@@ -30,6 +30,21 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
   <div><h2>🟢 매수 상위 20</h2><div id="buy"></div></div>
   <div><h2>🔴 회피 상위 20</h2><div id="avoid"></div></div>
 </div>
+
+<h2>📐 모델 정확도 상세 — 혼동행렬</h2>
+<div id="confusion"></div>
+<div class="card" style="font-size:12px;color:#9aa3b2;line-height:1.7">
+  <b style="color:#c9d2e0">각 지표 뜻</b> (방향 예측을 "상승=양성/하락=음성"으로 봤을 때)<br>
+  • <b>진양성(TP)</b>: 상승 예측 → 실제 상승 (제대로 맞춘 매수)<br>
+  • <b>위양성(FP)</b>: 상승 예측 → 실제 하락 = <b>헛매수 신호</b><br>
+  • <b>진음성(TN)</b>: 하락 예측 → 실제 하락 = <b>회피 성공</b><br>
+  • <b>위음성(FN)</b>: 하락 예측 → 실제 상승 = <b>놓친 상승</b><br>
+  • <b>정밀도(Precision)</b> = TP/(TP+FP): "상승"이라 부른 것 중 실제 상승 비율 → <b>매수 신호의 신뢰도</b><br>
+  • <b>특이도(Specificity)</b> = TN/(TN+FP): 실제 하락을 하락이라 맞춘 비율 → <b>회피 능력</b><br>
+  • <b>NPV</b> = TN/(TN+FN): "하락"이라 부른 것 중 실제 하락 비율 → <b>회피 신호의 신뢰도</b><br>
+  • <b>민감도(Recall)</b> = TP/(TP+FN): 실제 상승을 얼마나 포착했나<br>
+  <span style="color:#d8a33a">※ 절대 방향은 약함(동전던지기 부근). 이 표는 "어디서 틀리는지"를 보여주는 진단용이며, 신뢰 강점은 종목 간 순위·회피입니다.</span>
+</div>
 </div>
 <script>
 let RANK=null, BYNAME={};
@@ -42,6 +57,13 @@ async function boot(){
   RANK.ranking.forEach(r=>{BYNAME[r.name]=r.code;BYNAME[r.code]=r.code;const o=document.createElement('option');o.value=`${r.name} (${r.code})`;dl.appendChild(o);});
   list('buy',RANK.ranking.slice(0,20),'buy');
   list('avoid',RANK.ranking.slice(-20).reverse(),'avoid');
+  renderConfusion(meta.confusion||{});
+}
+function renderConfusion(cf){
+  const order=['5','10','21','63','126'];
+  const rows=order.filter(h=>cf[h]).map(h=>{const c=cf[h];
+    return `<tr><td>${c.label||h}</td><td class="r buy">${c.TP}%</td><td class="r avoid">${c.FP}%</td><td class="r buy">${c.TN}%</td><td class="r avoid">${c.FN}%</td><td class="r">${c.precision}%</td><td class="r">${c.specificity}%</td><td class="r">${c.npv}%</td><td class="r">${c.recall}%</td></tr>`;}).join('');
+  document.getElementById('confusion').innerHTML = rows ? `<div class="card" style="overflow-x:auto"><table><tr><th>지평</th><th class="r">진양성</th><th class="r">위양성</th><th class="r">진음성</th><th class="r">위음성</th><th class="r">정밀도</th><th class="r">특이도</th><th class="r">NPV</th><th class="r">민감도</th></tr>${rows}</table></div>` : '<div class="card mut">혼동행렬 데이터 준비 중(다음 업데이트 후 표시).</div>';
 }
 function list(id,arr,kind){
   document.getElementById(id).innerHTML='<table>'+arr.map(r=>{
@@ -52,6 +74,21 @@ function list(id,arr,kind){
 }
 function pick(){const q=document.getElementById('q').value.trim();let code=BYNAME[q]; if(!code){const m=q.match(/(\d{6})/);if(m)code=m[1];} if(!code){const k=Object.keys(BYNAME).find(n=>n.includes(q));code=k?BYNAME[k]:null;} if(code)showByCode(code);}
 document.getElementById('q').addEventListener('change',pick);
+function chartSVG(ch){
+  if(!ch||!ch.closes||ch.closes.length<2) return '';
+  const W=840,H=240,P=40,cs=ch.closes,n=cs.length,lv=ch.levels||{};
+  const vals=cs.concat(Object.values(lv).filter(v=>v!=null));
+  const lo=Math.min(...vals),hi=Math.max(...vals),span=(hi-lo)||1;
+  const X=i=>P+i*(W-2*P)/(n-1), Y=v=>H-24-(v-lo)*(H-44)/span;
+  const pts=cs.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  const defs=[['target','#48c78e','목표(컨센)'],['fair_3m','#6fa8ff','모델적정3M'],['buy','#2bb3a3','매수권'],['stop','#f06868','손절(참고)']];
+  for(const [k,c,lab] of defs){ if(lv[k]!=null){const y=Y(lv[k]); s+=`<line x1="${P}" y1="${y.toFixed(1)}" x2="${W-P}" y2="${y.toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="5 4"/><text x="${W-P}" y="${(y-3).toFixed(1)}" fill="${c}" font-size="11" text-anchor="end">${lab} ${lv[k].toLocaleString()}</text>`;}}
+  if(ch.trend){const i0=ch.trend.start_idx; s+=`<line x1="${X(i0).toFixed(1)}" y1="${Y(ch.trend.p0).toFixed(1)}" x2="${X(n-1).toFixed(1)}" y2="${Y(ch.trend.p1).toFixed(1)}" stroke="#d8a33a" stroke-width="2"/><text x="${X(i0).toFixed(1)}" y="${(Y(ch.trend.p0)-4).toFixed(1)}" fill="#d8a33a" font-size="11">추세선</text>`;}
+  s+=`<polyline points="${pts}" fill="none" stroke="#cdd3df" stroke-width="2"/>`;
+  s+=`<text x="${P}" y="14" fill="#9aa3b2" font-size="11">${hi.toLocaleString()}</text><text x="${P}" y="${H-6}" fill="#9aa3b2" font-size="11">${lo.toLocaleString()} · 최근 ${n}일</text></svg>`;
+  return s;
+}
 async function showByCode(code){
   let r; try{r=await (await fetch('./reports/'+code+'.json')).json();}catch(e){document.getElementById('report').innerHTML='<div class="card mut">해당 종목 리포트가 번들에 없습니다(시총 1조 미만/비대상일 수 있음).</div>';return;}
   const lab=r.label==='매수 후보'?'buy':(r.label==='회피 권고'?'avoid':'mut');
@@ -64,6 +101,9 @@ async function showByCode(code){
      <tr><td class="k">매수/회피 순위</td><td class="v">${r.rank}/${r.universe} (매력도 ${r.percentile}, 회피위험 ${r.avoid_risk_pct}%)</td></tr>
      <tr><td class="k">증권가 컨센서스</td><td class="v">${c.target?won(c.target)+` (${c.upside_pct>0?'+':''}${c.upside_pct}% · 의견 ${c.opinion}/5)`:'-'}</td></tr>
    </table>
+   <h2>차트 · 보조선</h2>
+   ${chartSVG(r.chart)}
+   <div class="k" style="margin-top:4px">노란=추세선(63일) · 녹색=컨센목표 · 파랑=모델3M적정 · 청록=매수권 · 빨강=손절(리스크관리 휴리스틱, 모델 출력 아님)</div>
    <h2>가격 방향성·예상가 (단/중/장기)</h2>
    <table><tr><th>지평</th><th>방향</th><th class="r">예상가(수익률)</th><th class="r">밴드</th><th class="r">방향정확도</th></tr>${hz}</table>
    <div class="disc" style="margin-top:10px">절대 방향 정확도 낮음 → 방향보다 <b>순위·컨센서스 여력</b>을 신뢰. 투자자문 아님.</div>
