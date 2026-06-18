@@ -23,8 +23,20 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
 <div class="k" id="meta"></div>
 <div class="disc">⚠️ 정보제공·교육 목적이며 투자자문이 아닙니다. 모델의 절대 방향 정확도는 낮고(약 52~55%), 신뢰 강점은 종목 간 <b>순위·회피</b>입니다. 모든 투자 판단과 책임은 본인에게 있습니다.</div>
 
+<div id="verif"></div>
+<div id="changes"></div>
+
+<h2>🔎 종목 검색</h2>
 <div class="row"><input id="q" list="codes" placeholder="종목명 또는 6자리 코드 검색 (예: 삼성전자 / 005930)"><datalist id="codes"></datalist></div>
 <div id="report"></div>
+
+<h2>⚖️ 2종목 비교</h2>
+<div class="row"><input id="cmpA" placeholder="종목A (코드/이름)" style="flex:1"><input id="cmpB" placeholder="종목B (코드/이름)" style="flex:1"><button onclick="compare()">비교 ↗</button></div>
+<div id="compare"></div>
+
+<h2>💼 내 포트폴리오 점검</h2>
+<div class="row"><input id="port" placeholder="보유 종목 코드들 쉼표로 (예: 005930,000660,066570)" style="flex:1"><button onclick="checkPort()">점검 ↗</button></div>
+<div id="portfolio"></div>
 
 <div class="cols">
   <div><h2>🟢 매수 상위 20</h2><div id="buy"></div></div>
@@ -45,6 +57,22 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
   • <b>민감도(Recall)</b> = TP/(TP+FN): 실제 상승을 얼마나 포착했나<br>
   <span style="color:#d8a33a">※ 절대 방향은 약함(동전던지기 부근). 이 표는 "어디서 틀리는지"를 보여주는 진단용이며, 신뢰 강점은 종목 간 순위·회피입니다.</span>
 </div>
+
+<h2>🛑 고신뢰 회피 바스켓 <span class="k" id="basket-meta"></span></h2>
+<div id="basket"></div>
+
+<h2>🏭 섹터별 보기</h2>
+<div class="row"><select id="sector" onchange="renderSector()"></select></div>
+<div id="sectorlist"></div>
+
+<h2>📄 면책 · 이용약관</h2>
+<div class="card" style="font-size:12px;color:#9aa3b2;line-height:1.7">
+  본 사이트(이하 "서비스")는 머신러닝 모델이 산출한 <b>정보를 제공·교육</b>하기 위한 것이며, <b>투자자문·투자권유·매매 추천이 아닙니다.</b><br>
+  • 표시된 매수/회피 순위·예상가·정확도는 과거 데이터 기반 추정이며 <b>미래 수익을 보장하지 않습니다.</b> 특히 단일종목 절대 방향 정확도는 낮습니다(혼동행렬 참조).<br>
+  • 모든 투자 판단과 그 결과(손익)에 대한 책임은 <b>이용자 본인</b>에게 있습니다. 서비스 운영자는 어떠한 손해에도 책임지지 않습니다.<br>
+  • 본 서비스는 「자본시장과 금융투자업에 관한 법률」상 투자자문업·유사투자자문업으로 등록된 서비스가 아닙니다. 데이터는 공개 출처(KRX·DART·공개 컨센서스) 기반이며 오류가 있을 수 있습니다.<br>
+  • 이용 시 위 내용에 동의한 것으로 간주합니다.
+</div>
 </div>
 <script>
 let RANK=null, BYNAME={};
@@ -59,6 +87,62 @@ async function boot(){
   list('buy',RANK.ranking.slice(0,20),'buy');
   list('avoid',RANK.ranking.slice(-20).reverse(),'avoid');
   renderConfusion(meta.confusion||{});
+  renderVerif(meta.verification||{});
+  renderChanges(meta.today_changes||{});
+  try{BASKET=await (await fetch('./basket.json'+bust)).json();}catch(e){BASKET={};}
+  renderBasket(BASKET);
+  buildSectorSelect(); renderSector();
+}
+let META=null, BASKET=null;
+function resolveCode(q){ q=(q||'').trim(); if(!q) return null; if(BYNAME[q]) return BYNAME[q]; const m=q.match(/(\d{6})/); if(m) return m[1]; const k=Object.keys(BYNAME).find(n=>n.includes(q)); return k?BYNAME[k]:null; }
+function renderVerif(v){
+  const el=document.getElementById('verif'); const s=v.latest||{}, a=v.aggregate||{};
+  if(!s.spearman_ic && !a.snapshots_scored){el.innerHTML='';return;}
+  el.innerHTML=`<div class="card"><b>📈 모델 검증 성적표</b> <span class="k">(예측 vs 실제, 매일 누적)</span><br>
+   <span class="k">최근(${s.as_of||'-'}→${s.to||'-'}): 순위적중 IC <b style="color:#6fa8ff">${s.spearman_ic??'-'}</b> · 회피적중 <b class="buy">${s.avoid_hit!=null?Math.round(s.avoid_hit*100)+'%':'-'}</b> · 매수적중 ${s.buy_hit!=null?Math.round(s.buy_hit*100)+'%':'-'}</span><br>
+   <span class="k">누적 ${a.snapshots_scored||0}회 평균: IC ${a.mean_ic??'-'} · 회피 ${a.mean_avoid_hit!=null?Math.round(a.mean_avoid_hit*100)+'%':'-'} · 매수 ${a.mean_buy_hit!=null?Math.round(a.mean_buy_hit*100)+'%':'-'}</span></div>`;
+}
+function renderChanges(c){
+  const el=document.getElementById('changes'); if(!c.to){el.innerHTML='';return;}
+  const nb=(c.new_buy||[]).join(', ')||'없음'; const na=(c.new_avoid||[]).join(', ')||'없음';
+  const mv=(c.movers||[]).map(m=>`${m.name} ${m.from}→${m.to}(${m.delta>0?'+':''}${m.delta})`).join(', ');
+  el.innerHTML=`<div class="card"><b>🔔 오늘의 변화</b> <span class="k">(${c.from} → ${c.to})</span><br>
+   <span class="buy">🟢 신규 매수후보:</span> ${nb}<br><span class="avoid">🔴 신규 회피권고:</span> ${na}<br><span class="k">📊 순위 급변동: ${mv||'-'}</span></div>`;
+}
+function renderBasket(b){
+  document.getElementById('basket-meta').textContent=b.horizon_days?`(${b.horizon_days}일 지평 · 백테스트 ${b.backtest_underperform_pct}% 시장하회)`:'';
+  const arr=b.basket||[]; if(!arr.length){document.getElementById('basket').innerHTML='<div class="card mut">바스켓 준비 중</div>';return;}
+  document.getElementById('basket').innerHTML='<div class="card"><table>'+arr.map(x=>{const ew=x.event_warning?` <span class="tag">⚠${x.event_warning.label} ${x.event_warning.days_ago}일전</span>`:''; return `<tr><td><a href="#" onclick="showByCode('${x.stock_code}');return false" style="color:#9bb7ff;text-decoration:none">${x.name}</a>${ew}</td><td class="r avoid">${x.avoid_risk_pct}%</td></tr>`;}).join('')+'</table></div>';
+}
+function buildSectorSelect(){
+  const secs=[...new Set(RANK.ranking.map(r=>r.sector||'기타'))].sort();
+  document.getElementById('sector').innerHTML=secs.map(s=>`<option>${s}</option>`).join('');
+}
+function renderSector(){
+  const sec=document.getElementById('sector').value;
+  const arr=RANK.ranking.filter(r=>(r.sector||'기타')===sec);
+  const buy=arr.filter(r=>r.label==='매수 후보').slice(0,10), av=arr.filter(r=>r.label==='회피 권고').slice(-10).reverse();
+  const col=(t,rows,kind)=>`<div><div class="sub">${t}</div><table>${rows.map(r=>`<tr><td><a href="#" onclick="showByCode('${r.code}');return false" style="color:#9bb7ff;text-decoration:none">${r.name}</a></td><td class="r ${kind}">${kind==='buy'?r.pct:r.avoid_risk_pct+'%'}</td></tr>`).join('')||'<tr><td class="mut">없음</td></tr>'}</table></div>`;
+  document.getElementById('sectorlist').innerHTML=`<div class="card cols">${col('🟢 매수',buy,'buy')}${col('🔴 회피',av,'avoid')}</div>`;
+}
+async function compare(){
+  const a=resolveCode(document.getElementById('cmpA').value), b=resolveCode(document.getElementById('cmpB').value);
+  if(!a||!b){document.getElementById('compare').innerHTML='<div class="card mut">두 종목을 정확히 입력하세요.</div>';return;}
+  const [ra,rb]=await Promise.all([a,b].map(c=>fetch('./reports/'+c+'.json?t='+Date.now()).then(r=>r.json()).catch(()=>null)));
+  const cell=(r)=>{ if(!r) return '<div class="card mut">없음</div>'; const c=r.consensus||{}; const h3=(r.horizons||{})['63']||{};
+    return `<div class="card"><div class="v">${r.name}</div><div class="k">${r.label} · 순위 ${r.rank}/${r.universe}</div>
+     <table><tr><td class="k">매력도</td><td class="r">${r.percentile}</td></tr>
+     <tr><td class="k">회피위험</td><td class="r">${r.avoid_risk_pct}%</td></tr>
+     <tr><td class="k">컨센여력</td><td class="r">${c.upside_pct!=null?(c.upside_pct>0?'+':'')+c.upside_pct+'%':'-'}</td></tr>
+     <tr><td class="k">3M예상</td><td class="r">${h3.ret_pct!=null?(h3.ret_pct>0?'+':'')+h3.ret_pct+'%':'-'}</td></tr></table></div>`;};
+  document.getElementById('compare').innerHTML=`<div class="cols">${cell(ra)}${cell(rb)}</div>`;
+}
+async function checkPort(){
+  const codes=(document.getElementById('port').value.match(/\d{6}/g)||[]);
+  if(!codes.length){document.getElementById('portfolio').innerHTML='<div class="card mut">6자리 코드를 쉼표로 입력하세요.</div>';return;}
+  const rs=await Promise.all(codes.map(c=>fetch('./reports/'+c+'.json?t='+Date.now()).then(r=>r.json()).catch(()=>null)));
+  const rows=rs.filter(Boolean).map(r=>{const lab=r.label==='매수 후보'?'buy':(r.label==='회피 권고'?'avoid':'mut'); const ew=r.event_warning?`⚠${r.event_warning.label}`:''; return `<tr><td><a href="#" onclick="showByCode('${r.code}');return false" style="color:#9bb7ff;text-decoration:none">${r.name}</a></td><td class="${lab}">${r.label}</td><td class="r">${r.avoid_risk_pct}%</td><td class="tag">${ew}</td></tr>`;}).join('');
+  document.getElementById('portfolio').innerHTML=`<div class="card"><table><tr><th>종목</th><th>판정</th><th class="r">회피위험</th><th>공시</th></tr>${rows}</table><div class="k" style="margin-top:6px">회피위험이 높은 보유종목을 우선 점검하세요.</div></div>`;
 }
 function renderConfusion(cf){
   const order=['5','10','21','63','126'];
