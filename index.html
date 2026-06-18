@@ -50,8 +50,9 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
 let RANK=null, BYNAME={};
 const won=n=>n==null?'-':Math.round(n).toLocaleString('ko-KR')+'원';
 async function boot(){
-  const meta=await (await fetch('./meta.json')).json();
-  RANK=await (await fetch('./ranking.json')).json();
+  const bust='?t='+Date.now();
+  const meta=await (await fetch('./meta.json'+bust)).json();
+  RANK=await (await fetch('./ranking.json'+bust)).json();
   document.getElementById('meta').textContent=`모델 학습 기준일 ${meta.model_trained_on} · 유니버스 ${RANK.universe}종목 · 생성 ${meta.generated_at.slice(0,16).replace('T',' ')}`;
   const dl=document.getElementById('codes');
   RANK.ranking.forEach(r=>{BYNAME[r.name]=r.code;BYNAME[r.code]=r.code;const o=document.createElement('option');o.value=`${r.name} (${r.code})`;dl.appendChild(o);});
@@ -90,7 +91,7 @@ function chartSVG(ch){
   return s;
 }
 async function showByCode(code){
-  let r; try{r=await (await fetch('./reports/'+code+'.json')).json();}catch(e){document.getElementById('report').innerHTML='<div class="card mut">해당 종목 리포트가 번들에 없습니다(시총 1조 미만/비대상일 수 있음).</div>';return;}
+  let r; try{r=await (await fetch('./reports/'+code+'.json?t='+Date.now())).json();}catch(e){document.getElementById('report').innerHTML='<div class="card mut">해당 종목 리포트가 번들에 없습니다(시총 1조 미만/비대상일 수 있음).</div>';return;}
   const lab=r.label==='매수 후보'?'buy':(r.label==='회피 권고'?'avoid':'mut');
   const c=r.consensus||{}; const ew=r.event_warning?`<span class="tag">⚠ ${r.event_warning.label} ${r.event_warning.days_ago}일전</span>`:'';
   const hz=Object.values(r.horizons||{}).map(v=>`<tr><td>${v.label}</td><td><span class="${v.direction==='상승'?'buy':'avoid'}">${v.direction}</span></td><td class="r">${won(v.price)} (${v.ret_pct>0?'+':''}${v.ret_pct}%)</td><td class="r mut">${won(v.low)}~${won(v.high)}</td><td class="r mut">정확도 ${v.dir_acc??'-'}%</td></tr>`).join('');
