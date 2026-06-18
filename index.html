@@ -26,6 +26,9 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
 <div id="verif"></div>
 <div id="changes"></div>
 
+<h2>🎖️ 고확신 신호 <span class="k">(상·하위 2%만 — 적중률 우선)</span></h2>
+<div id="conviction"></div>
+
 <h2>🔎 종목 검색</h2>
 <div class="row"><input id="q" list="codes" placeholder="종목명 또는 6자리 코드 검색 (예: 삼성전자 / 005930)"><datalist id="codes"></datalist></div>
 <div id="report"></div>
@@ -88,6 +91,7 @@ async function boot(){
   list('buy',RANK.ranking.slice(0,20),'buy');
   list('avoid',RANK.ranking.slice(-20).reverse(),'avoid');
   renderConfusion(meta.confusion||{});
+  renderConviction(meta.conviction||{});
   renderVerif(meta.verification||{});
   renderChanges(meta.today_changes||{});
   try{BASKET=await (await fetch('./basket.json'+bust)).json();}catch(e){BASKET={};}
@@ -96,6 +100,16 @@ async function boot(){
 }
 let META=null, BASKET=null;
 function resolveCode(q){ q=(q||'').trim(); if(!q) return null; if(BYNAME[q]) return BYNAME[q]; const m=q.match(/(\d{6})/); if(m) return m[1]; const k=Object.keys(BYNAME).find(n=>n.includes(q)); return k?BYNAME[k]:null; }
+function renderConviction(cv){
+  const k=Math.max(1,Math.ceil(RANK.ranking.length*0.02));
+  const av=RANK.ranking.slice(-k).reverse(), bu=RANK.ranking.slice(0,k);
+  const ah=cv.avoid_hit_2pct, bh=cv.buy_hit_2pct;
+  const lst=(arr,kind)=>arr.map(r=>`<a href="#" onclick="showByCode('${r.code}');return false" style="color:#9bb7ff;text-decoration:none">${r.name}</a>`).join(', ');
+  document.getElementById('conviction').innerHTML=`<div class="cols">
+    <div class="card"><div class="sub avoid">🔴 고확신 회피 (하위 2%)</div><div class="k">백테스트 적중 ${ah!=null?ah+'%':'-'} (기준 ${cv.avoid_hit_base??'-'}%)</div><div style="margin-top:6px">${lst(av,'avoid')}</div></div>
+    <div class="card"><div class="sub buy">🟢 고확신 매수 (상위 2%)</div><div class="k">백테스트 적중 ${bh!=null?bh+'%':'-'} (기준 ${cv.buy_hit_base??'-'}%)</div><div style="margin-top:6px">${lst(bu,'buy')}</div></div>
+  </div><div class="k" style="margin-top:4px">※ 적중률을 높이려 일부러 좁힘(커버리지↓). 회피가 매수보다 신뢰도 높음.</div>`;
+}
 function renderVerif(v){
   const el=document.getElementById('verif'); const s=v.latest||{}, a=v.aggregate||{};
   if(!s.spearman_ic && !a.snapshots_scored){el.innerHTML='';return;}
