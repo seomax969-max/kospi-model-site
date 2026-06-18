@@ -1,0 +1,74 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>코스피 모델 리포트</title>
+<style>
+*{box-sizing:border-box} body{font-family:system-ui,"Apple SD Gothic Neo",sans-serif;margin:0;background:#0f1115;color:#e7e9ee}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+h1{font-size:20px;font-weight:600;margin:8px 0} h2{font-size:15px;color:#9aa3b2;margin:18px 0 8px}
+.disc{background:#1b1e26;border-left:3px solid #d8a33a;padding:10px 14px;border-radius:6px;font-size:12px;color:#c9b27a;margin:10px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input{background:#1b1e26;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8px;padding:10px 12px;font-size:15px;width:100%}
+.card{background:#161922;border:1px solid #232733;border-radius:12px;padding:14px 16px;margin:10px 0}
+.k{color:#9aa3b2;font-size:12px} .v{font-size:15px;font-weight:600}
+.buy{color:#48c78e} .avoid{color:#f06868} .mut{color:#9aa3b2}
+table{width:100%;border-collapse:collapse;font-size:13px} td,th{padding:6px 8px;border-bottom:1px solid #232733;text-align:left}
+th{color:#9aa3b2;font-weight:500} .r{text-align:right}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.tag{font-size:11px;color:#d8a33a}
+button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8px;padding:8px 12px;cursor:pointer}
+</style></head><body><div class="wrap">
+<h1>📊 코스피 모델 리포트</h1>
+<div class="k" id="meta"></div>
+<div class="disc">⚠️ 정보제공·교육 목적이며 투자자문이 아닙니다. 모델의 절대 방향 정확도는 낮고(약 52~55%), 신뢰 강점은 종목 간 <b>순위·회피</b>입니다. 모든 투자 판단과 책임은 본인에게 있습니다.</div>
+
+<div class="row"><input id="q" list="codes" placeholder="종목명 또는 6자리 코드 검색 (예: 삼성전자 / 005930)"><datalist id="codes"></datalist></div>
+<div id="report"></div>
+
+<div class="cols">
+  <div><h2>🟢 매수 상위 20</h2><div id="buy"></div></div>
+  <div><h2>🔴 회피 상위 20</h2><div id="avoid"></div></div>
+</div>
+</div>
+<script>
+let RANK=null, BYNAME={};
+const won=n=>n==null?'-':Math.round(n).toLocaleString('ko-KR')+'원';
+async function boot(){
+  const meta=await (await fetch('./meta.json')).json();
+  RANK=await (await fetch('./ranking.json')).json();
+  document.getElementById('meta').textContent=`모델 학습 기준일 ${meta.model_trained_on} · 유니버스 ${RANK.universe}종목 · 생성 ${meta.generated_at.slice(0,16).replace('T',' ')}`;
+  const dl=document.getElementById('codes');
+  RANK.ranking.forEach(r=>{BYNAME[r.name]=r.code;BYNAME[r.code]=r.code;const o=document.createElement('option');o.value=`${r.name} (${r.code})`;dl.appendChild(o);});
+  list('buy',RANK.ranking.slice(0,20),'buy');
+  list('avoid',RANK.ranking.slice(-20).reverse(),'avoid');
+}
+function list(id,arr,kind){
+  document.getElementById(id).innerHTML='<table>'+arr.map(r=>{
+    const val=kind==='buy'?`<span class="buy">${r.pct}</span>`:`<span class="avoid">${r.avoid_risk_pct}%</span>`;
+    const ew=r.ew?` <span class="tag">⚠${r.ew}</span>`:'';
+    return `<tr><td><a href="#" onclick="showByCode('${r.code}');return false" style="color:#9bb7ff;text-decoration:none">${r.name}</a>${ew}</td><td class="r">${val}</td></tr>`;
+  }).join('')+'</table>';
+}
+function pick(){const q=document.getElementById('q').value.trim();let code=BYNAME[q]; if(!code){const m=q.match(/(\d{6})/);if(m)code=m[1];} if(!code){const k=Object.keys(BYNAME).find(n=>n.includes(q));code=k?BYNAME[k]:null;} if(code)showByCode(code);}
+document.getElementById('q').addEventListener('change',pick);
+async function showByCode(code){
+  let r; try{r=await (await fetch('./reports/'+code+'.json')).json();}catch(e){document.getElementById('report').innerHTML='<div class="card mut">해당 종목 리포트가 번들에 없습니다(시총 1조 미만/비대상일 수 있음).</div>';return;}
+  const lab=r.label==='매수 후보'?'buy':(r.label==='회피 권고'?'avoid':'mut');
+  const c=r.consensus||{}; const ew=r.event_warning?`<span class="tag">⚠ ${r.event_warning.label} ${r.event_warning.days_ago}일전</span>`:'';
+  const hz=Object.values(r.horizons||{}).map(v=>`<tr><td>${v.label}</td><td><span class="${v.direction==='상승'?'buy':'avoid'}">${v.direction}</span></td><td class="r">${won(v.price)} (${v.ret_pct>0?'+':''}${v.ret_pct}%)</td><td class="r mut">${won(v.low)}~${won(v.high)}</td><td class="r mut">정확도 ${v.dir_acc??'-'}%</td></tr>`).join('');
+  document.getElementById('report').innerHTML=`<div class="card">
+   <div class="row" style="justify-content:space-between"><div class="v">${r.name} <span class="mut">(${r.code})</span></div><div class="pill ${lab}">${r.label}</div></div>
+   <div class="k">모델 ${r.model_trained_on} · 종가 ${won(r.last_close)} ${ew}</div>
+   <table style="margin-top:8px">
+     <tr><td class="k">매수/회피 순위</td><td class="v">${r.rank}/${r.universe} (매력도 ${r.percentile}, 회피위험 ${r.avoid_risk_pct}%)</td></tr>
+     <tr><td class="k">증권가 컨센서스</td><td class="v">${c.target?won(c.target)+` (${c.upside_pct>0?'+':''}${c.upside_pct}% · 의견 ${c.opinion}/5)`:'-'}</td></tr>
+   </table>
+   <h2>가격 방향성·예상가 (단/중/장기)</h2>
+   <table><tr><th>지평</th><th>방향</th><th class="r">예상가(수익률)</th><th class="r">밴드</th><th class="r">방향정확도</th></tr>${hz}</table>
+   <div class="disc" style="margin-top:10px">절대 방향 정확도 낮음 → 방향보다 <b>순위·컨센서스 여력</b>을 신뢰. 투자자문 아님.</div>
+  </div>`;
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+boot();
+</script></body></html>
