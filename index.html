@@ -26,6 +26,9 @@ button{background:#222633;border:1px solid #2a2e38;color:#e7e9ee;border-radius:8
 <div id="verif"></div>
 <div id="changes"></div>
 
+<h2>📈 수익곡선 <span class="k">(OOS 워크포워드 누적)</span></h2>
+<div id="equity"></div>
+
 <h2>🎖️ 고확신 신호 <span class="k">(상·하위 2%만 — 적중률 우선)</span></h2>
 <div id="conviction"></div>
 
@@ -94,11 +97,13 @@ async function boot(){
   renderConviction(meta.conviction||{});
   renderVerif(meta.verification||{});
   renderChanges(meta.today_changes||{});
+  try{EQUITY=await (await fetch('./equity_curve.json'+bust)).json();}catch(e){EQUITY={};}
+  renderEquity(EQUITY);
   try{BASKET=await (await fetch('./basket.json'+bust)).json();}catch(e){BASKET={};}
   renderBasket(BASKET);
   buildSectorSelect(); renderSector();
 }
-let META=null, BASKET=null;
+let META=null, BASKET=null, EQUITY=null;
 function resolveCode(q){ q=(q||'').trim(); if(!q) return null; if(BYNAME[q]) return BYNAME[q]; const m=q.match(/(\d{6})/); if(m) return m[1]; const k=Object.keys(BYNAME).find(n=>n.includes(q)); return k?BYNAME[k]:null; }
 function renderConviction(cv){
   const k=Math.max(1,Math.ceil(RANK.ranking.length*0.02));
@@ -123,6 +128,66 @@ function renderChanges(c){
   const mv=(c.movers||[]).map(m=>`${m.name} ${m.from}→${m.to}(${m.delta>0?'+':''}${m.delta})`).join(', ');
   el.innerHTML=`<div class="card" style="font-size:12px;line-height:1.7"><b style="font-size:13px">🔔 오늘의 변화</b> <span class="k">(${c.from} → ${c.to})</span><br>
    <span class="buy">🟢 신규 매수후보:</span> ${nb}<br><span class="avoid">🔴 신규 회피권고:</span> ${na}<br><span class="k">📊 순위 급변동: ${mv||'-'}</span></div>`;
+}
+const EQ_STYLE={
+  long_short:{color:'#f0b429',width:3,headline:true},
+  avoidance:{color:'#48c78e',width:3,headline:true},
+  top_decile:{color:'#6fa8ff',width:1.6,headline:false},
+  benchmark:{color:'#9aa3b2',width:1.6,headline:false},
+};
+const EQ_ORDER=['long_short','avoidance','top_decile','benchmark'];
+const pct=v=>v==null?'-':(v>0?'+':'')+(v*100).toFixed(1)+'%';
+function equitySVG(eq){
+  const ser=eq.series||{};
+  const keys=EQ_ORDER.filter(k=>ser[k]&&ser[k].cum&&ser[k].cum.length>1);
+  if(!keys.length) return '';
+  const W=840,H=300,PL=54,PR=18,PT=16,PB=26;
+  let n=0,lo=Infinity,hi=-Infinity;
+  keys.forEach(k=>{const c=ser[k].cum;n=Math.max(n,c.length);c.forEach(v=>{if(v<lo)lo=v;if(v>hi)hi=v;});});
+  const span=(hi-lo)||1;
+  const X=i=>PL+i*(W-PL-PR)/(n-1), Y=v=>H-PB-(v-lo)*(H-PT-PB)/span;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  // gridlines + y labels (wealth multiple)
+  const ticks=4;
+  for(let t=0;t<=ticks;t++){const v=lo+span*t/ticks;const y=Y(v);
+    s+=`<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="#1c212c" stroke-width="1"/>`;
+    s+=`<text x="${PL-6}" y="${(y+3).toFixed(1)}" fill="#6b7488" font-size="10" text-anchor="end">${v.toFixed(1)}x</text>`;}
+  // baseline at 1.0x (starting wealth) if in range
+  if(lo<=1&&hi>=1){const y1=Y(1);s+=`<line x1="${PL}" y1="${y1.toFixed(1)}" x2="${W-PR}" y2="${y1.toFixed(1)}" stroke="#33404f" stroke-width="1" stroke-dasharray="4 4"/>`;}
+  // comparison pair first (thin), headline last (bold, on top)
+  [...keys].sort((a,b)=>(EQ_STYLE[a].headline?1:0)-(EQ_STYLE[b].headline?1:0)).forEach(k=>{
+    const st=EQ_STYLE[k],c=ser[k].cum;
+    const pts=c.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    s+=`<polyline points="${pts}" fill="none" stroke="${st.color}" stroke-width="${st.width}" stroke-linejoin="round"/>`;
+  });
+  s+=`<text x="${PL}" y="${H-6}" fill="#6b7488" font-size="10">${(eq.dates&&eq.dates[0])||''}</text>`;
+  s+=`<text x="${W-PR}" y="${H-6}" fill="#6b7488" font-size="10" text-anchor="end">${(eq.dates&&eq.dates[eq.dates.length-1])||''}</text>`;
+  s+=`</svg>`;
+  return s;
+}
+function renderEquity(eq){
+  const el=document.getElementById('equity');
+  const ser=(eq||{}).series||{};
+  const keys=EQ_ORDER.filter(k=>ser[k]&&ser[k].cum&&ser[k].cum.length>1);
+  if(!keys.length){el.innerHTML='<div class="card mut">수익곡선 준비 중(다음 업데이트 후 표시).</div>';return;}
+  const legend=keys.map(k=>{const st=EQ_STYLE[k];
+    return `<span style="white-space:nowrap;margin-right:14px"><span style="display:inline-block;width:14px;height:0;border-top:${st.width}px solid ${st.color};vertical-align:middle;margin-right:5px"></span><span style="${st.headline?'font-weight:600;color:#e7e9ee':'color:#9aa3b2'}">${ser[k].label}</span></span>`;}).join('');
+  const rows=keys.map(k=>{const m=ser[k].metrics||{};const st=EQ_STYLE[k];
+    return `<tr><td><span style="color:${st.color};font-weight:${st.headline?'600':'400'}">${ser[k].label}</span></td>`+
+      `<td class="r">${pct(m.total_return)}</td><td class="r">${pct(m.cagr)}</td>`+
+      `<td class="r">${m.sharpe!=null?m.sharpe.toFixed(2):'-'}</td><td class="r avoid">${pct(m.max_drawdown)}</td>`+
+      `<td class="r">${m.hit_rate!=null?Math.round(m.hit_rate*100)+'%':'-'}</td></tr>`;}).join('');
+  const np=eq.n_periods||(eq.dates?eq.dates.length:0);
+  el.innerHTML=`<div class="card">
+    <div style="font-size:12px;margin-bottom:4px">${legend}</div>
+    ${equitySVG(eq)}
+    <table style="margin-top:10px"><tr><th>시리즈</th><th class="r">누적</th><th class="r">CAGR</th><th class="r">Sharpe</th><th class="r">MDD</th><th class="r">적중률</th></tr>${rows}</table>
+    <div class="k" style="margin-top:8px;line-height:1.7">
+      <b style="color:#f0b429">롱숏</b>·<b style="color:#48c78e">회피</b>가 검증된 강점(굵은 선), <b style="color:#6fa8ff">상위10% 롱</b>은 <b style="color:#9aa3b2">코스피(동일가중)</b>와 쌍으로 비교.<br>
+      ${eq.note||'OOS 워크포워드 · 순위/회피 강점 시각화 · 절대 방향 타이밍 아님'} — <b>절대 타이밍 신호가 아닙니다.</b><br>
+      비용 차감(${eq.cost_bps!=null?eq.cost_bps:'-'}bps) · 리밸런스 ${np}회(겹치는 OOS 구간이 적어 오차 큼).
+    </div>
+  </div>`;
 }
 function renderBasket(b){
   document.getElementById('basket-meta').textContent=b.horizon_days?`(${b.horizon_days}일 지평 · 백테스트 ${b.backtest_underperform_pct}% 시장하회)`:'';
