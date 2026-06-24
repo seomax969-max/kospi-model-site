@@ -119,8 +119,9 @@ function renderVerif(v){
   const el=document.getElementById('verif'); const s=v.latest||{}, a=v.aggregate||{};
   if(!s.spearman_ic && !a.snapshots_scored){el.innerHTML='';return;}
   el.innerHTML=`<div class="card"><b>📈 모델 검증 성적표</b> <span class="k">(예측 vs 실제, 매일 누적)</span><br>
-   <span class="k">최근(${s.as_of||'-'}→${s.to||'-'}): 순위적중 IC <b style="color:#6fa8ff">${s.spearman_ic??'-'}</b> · 회피적중 <b class="buy">${s.avoid_hit!=null?Math.round(s.avoid_hit*100)+'%':'-'}</b> · 매수적중 ${s.buy_hit!=null?Math.round(s.buy_hit*100)+'%':'-'}</span><br>
-   <span class="k">누적 ${a.snapshots_scored||0}회 평균: IC ${a.mean_ic??'-'} · 회피 ${a.mean_avoid_hit!=null?Math.round(a.mean_avoid_hit*100)+'%':'-'} · 매수 ${a.mean_buy_hit!=null?Math.round(a.mean_buy_hit*100)+'%':'-'}</span></div>`;
+   <span>누적 ${a.snapshots_scored||0}회 평균(대표 정확도): 순위적중 IC <b style="color:#6fa8ff">${a.mean_ic??'-'}</b> · 회피적중 <b class="buy">${a.mean_avoid_hit!=null?Math.round(a.mean_avoid_hit*100)+'%':'-'}</b> · 매수적중 ${a.mean_buy_hit!=null?Math.round(a.mean_buy_hit*100)+'%':'-'}</span><br>
+   <span class="k">당일(1거래일, ${s.as_of||'-'}→${s.to||'-'}): IC ${s.spearman_ic??'-'} · 회피 ${s.avoid_hit!=null?Math.round(s.avoid_hit*100)+'%':'-'} · 매수 ${s.buy_hit!=null?Math.round(s.buy_hit*100)+'%':'-'}</span><br>
+   <span class="k" style="font-size:11px">※ 당일 수치는 1거래일 실현이라 변동이 큽니다(노이즈). 모델의 실제 강점은 누적·백테스트(회피 ~60%, 고확신 2% 72%) 기준입니다.</span></div>`;
 }
 function renderChanges(c){
   const el=document.getElementById('changes'); if(!c.to){el.innerHTML='';return;}
