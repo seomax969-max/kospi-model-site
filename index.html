@@ -246,6 +246,36 @@ function list(id,arr,kind){
 }
 function pick(){const q=document.getElementById('q').value.trim();let code=BYNAME[q]; if(!code){const m=q.match(/(\d{6})/);if(m)code=m[1];} if(!code){const k=Object.keys(BYNAME).find(n=>n.includes(q));code=k?BYNAME[k]:null;} if(code)showByCode(code);}
 document.getElementById('q').addEventListener('change',pick);
+function smaArr(a,n){const o=Array(a.length).fill(null);let s=0;
+  for(let i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];if(i>=n-1)o[i]=s/n;}return o;}
+function candleSVG(d,cap){
+  if(!d||!d.c||d.c.length<2) return '';
+  const N=d.c.length,W=840,H=300,P=56,PR=12,VH=44;
+  const rlo=Math.min(...d.l),rhi=Math.max(...d.h),pad=(rhi-rlo)*0.04||1;
+  const lo=rlo-pad,hi=rhi+pad;
+  const X=i=>P+(W-P-PR)*i/(N-1), Y=v=>H-VH-16-(H-VH-58)*(v-lo)/(hi-lo);
+  const step=(()=>{const raw=(hi-lo)/5,p=Math.pow(10,Math.floor(Math.log10(raw))),r=raw/p;return (r<1.5?1:r<3?2:r<7?5:10)*p;})();
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  for(let vv=Math.ceil(lo/step)*step;vv<=hi;vv+=step)
+    s+=`<line x1="${P}" y1="${Y(vv).toFixed(1)}" x2="${W-PR}" y2="${Y(vv).toFixed(1)}" stroke="#1a2130"/><text x="${P-5}" y="${(Y(vv)+3).toFixed(1)}" fill="#9aa3b2" font-size="9" text-anchor="end">${Math.round(vv).toLocaleString()}</text>`;
+  const ds=Math.max(1,Math.round(N/7));
+  for(let i=0;i<N;i+=ds)s+=`<text x="${X(i).toFixed(1)}" y="${H-VH-4}" fill="#6b7280" font-size="8" text-anchor="middle">${d.dates[i]||''}</text>`;
+  const bw=Math.max(1,(W-P-PR)/N*0.65);
+  for(let i=0;i<N;i++){const up=d.c[i]>=d.o[i],col=up?'#48c78e':'#f06868';
+    s+=`<line x1="${X(i).toFixed(1)}" y1="${Y(d.h[i]).toFixed(1)}" x2="${X(i).toFixed(1)}" y2="${Y(d.l[i]).toFixed(1)}" stroke="${col}"/>`;
+    s+=`<rect x="${(X(i)-bw/2).toFixed(1)}" y="${Y(Math.max(d.o[i],d.c[i])).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,Math.abs(Y(d.o[i])-Y(d.c[i]))).toFixed(1)}" fill="${col}"/>`;}
+  const mk=a=>a.map((v,i)=>v!=null?`${X(i).toFixed(1)},${Y(v).toFixed(1)}`:null).filter(Boolean).join(' ');
+  s+=`<polyline points="${mk(smaArr(d.c,5))}" fill="none" stroke="#d8a33a" stroke-width="1.2"/>`;
+  s+=`<polyline points="${mk(smaArr(d.c,20))}" fill="none" stroke="#6fa8ff" stroke-width="1.2"/>`;
+  const lastc=d.c[N-1],lcol=lastc>=d.c[N-2]?'#48c78e':'#f06868';
+  s+=`<line x1="${P}" y1="${Y(lastc).toFixed(1)}" x2="${W-PR}" y2="${Y(lastc).toFixed(1)}" stroke="${lcol}" stroke-dasharray="2 2"/>`;
+  s+=`<text x="${W-PR-2}" y="${(Y(lastc)-3).toFixed(1)}" fill="${lcol}" font-size="10" text-anchor="end" font-weight="700">${lastc.toLocaleString()}</text>`;
+  const vmax=Math.max(...d.v)||1;
+  for(let i=0;i<N;i++){const vh=d.v[i]/vmax*(VH-8);
+    s+=`<rect x="${(X(i)-bw/2).toFixed(1)}" y="${(H-8-vh).toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="#2b3d5c"/>`;}
+  s+=`<text x="${P}" y="13" fill="#9aa3b2" font-size="11">${cap} · <tspan fill="#d8a33a">━</tspan>MA5 <tspan fill="#6fa8ff">━</tspan>MA20 · 하단=거래량</text></svg>`;
+  return s;
+}
 function chartSVG(ch){
   if(!ch||!ch.closes||ch.closes.length<2) return '';
   const W=840,H=240,P=40,cs=ch.closes,n=cs.length,lv=ch.levels||{};
@@ -276,6 +306,9 @@ async function showByCode(code){
    <h2>차트 · 보조선</h2>
    ${chartSVG(r.chart)}
    <div class="k" style="margin-top:4px">노란=추세선(63일) · 녹색=컨센목표 · 파랑=모델3M적정 · 청록=매수권 · 빨강=손절(리스크관리 휴리스틱, 모델 출력 아님)</div>
+   ${r.chart_d?candleSVG(r.chart_d,`일봉 (최근 ${r.chart_d.c.length}거래일)`):''}
+   ${r.chart_w?candleSVG(r.chart_w,`주봉 (최근 ${r.chart_w.c.length}주 · MA=5주/20주선)`):''}
+   ${(r.chart_d||r.chart_w)?'<div class="k" style="margin-top:4px">일봉/주봉 캔들: <span class="buy">초록=양봉</span> · <span class="avoid">빨강=음봉</span> · 점선=현재가. 차트 해석은 참고용(예측력 비검증) — 판단은 순위·회피 신호 우선.</div>':''}
    <h2>가격 방향성·예상가 (단/중/장기)</h2>
    <table><tr><th>지평</th><th>방향</th><th class="r">예상가(수익률)</th><th class="r">밴드</th><th class="r">방향정확도</th></tr>${hz}</table>
    <div class="disc" style="margin-top:10px">절대 방향 정확도 낮음 → 방향보다 <b>순위·컨센서스 여력</b>을 신뢰. 투자자문 아님.</div>
