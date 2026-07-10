@@ -142,12 +142,13 @@ function equitySVG(eq){
   const ser=eq.series||{};
   const keys=EQ_ORDER.filter(k=>ser[k]&&ser[k].cum&&ser[k].cum.length>1);
   if(!keys.length) return '';
+  const id='ce'+(++_cid);
   const W=840,H=300,PL=54,PR=18,PT=16,PB=26;
   let n=0,lo=Infinity,hi=-Infinity;
   keys.forEach(k=>{const c=ser[k].cum;n=Math.max(n,c.length);c.forEach(v=>{if(v<lo)lo=v;if(v>hi)hi=v;});});
   const span=(hi-lo)||1;
   const X=i=>PL+i*(W-PL-PR)/(n-1), Y=v=>H-PB-(v-lo)*(H-PT-PB)/span;
-  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  let s=`<svg id="${id}" viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
   // gridlines + y labels (wealth multiple)
   const ticks=4;
   for(let t=0;t<=ticks;t++){const v=lo+span*t/ticks;const y=Y(v);
@@ -163,7 +164,14 @@ function equitySVG(eq){
   });
   s+=`<text x="${PL}" y="${H-6}" fill="#6b7488" font-size="10">${(eq.dates&&eq.dates[0])||''}</text>`;
   s+=`<text x="${W-PR}" y="${H-6}" fill="#6b7488" font-size="10" text-anchor="end">${(eq.dates&&eq.dates[eq.dates.length-1])||''}</text>`;
+  s+=XH(PL,PR,W,PT,H-PB);
   s+=`</svg>`;
+  ARMQ.push({id,fn:svg=>attachTip(svg,
+    {W,H,P:PL,PR,top:PT,bot:H-PB,N:n,
+     fmtY:sy=>(lo+((H-PB)-sy)*span/(H-PT-PB)).toFixed(2)+'x'},
+    i=>{let h=`<b>${(eq.dates&&eq.dates[i])||('리밸런스 #'+(i+1))}</b>`;
+     keys.forEach(k=>{const c=ser[k].cum;if(i<c.length)h+=`<br><span style="color:${EQ_STYLE[k].color}">●</span> ${ser[k].label} <b>${c[i].toFixed(2)}x</b>`;});
+     return h;})});
   return s;
 }
 function renderEquity(eq){
@@ -189,6 +197,7 @@ function renderEquity(eq){
       비용 차감(${eq.cost_bps!=null?eq.cost_bps:'-'}bps) · 리밸런스 ${np}회(겹치는 OOS 구간이 적어 오차 큼).
     </div>
   </div>`;
+  armAll();
 }
 function renderBasket(b){
   document.getElementById('basket-meta').textContent=b.horizon_days?`(${b.horizon_days}일 지평 · 백테스트 ${b.backtest_underperform_pct}% 시장하회)`:'';
@@ -246,16 +255,49 @@ function list(id,arr,kind){
 }
 function pick(){const q=document.getElementById('q').value.trim();let code=BYNAME[q]; if(!code){const m=q.match(/(\d{6})/);if(m)code=m[1];} if(!code){const k=Object.keys(BYNAME).find(n=>n.includes(q));code=k?BYNAME[k]:null;} if(code)showByCode(code);}
 document.getElementById('q').addEventListener('change',pick);
+/* ---- 차트 크로스헤어/툴팁 (HTS식: 커서 올리면 날짜·가격 표시) ---- */
+let _cid=0; const ARMQ=[];
+function XH(P,PRm,W,top,bot){return `<g class="xh" style="display:none"><line class="xv" y1="${top}" y2="${bot}" stroke="#8b93a5" stroke-dasharray="3 3"/><line class="xw" x1="${P}" x2="${W-PRm}" stroke="#8b93a5" stroke-dasharray="3 3"/><rect class="pr" x="${P+2}" width="60" height="14" rx="3" fill="#2b3446" opacity="0.95"/><text class="pt" x="${P+58}" font-size="10" fill="#fff" text-anchor="end"></text></g>`;}
+function armAll(){for(const a of ARMQ.splice(0)){const svg=document.getElementById(a.id);if(svg)a.fn(svg);}}
+function attachTip(svg,g,content){
+  const par=svg.parentElement; par.style.position='relative';
+  const tip=document.createElement('div');
+  tip.style.cssText='display:none;position:absolute;pointer-events:none;background:#101520f2;border:1px solid #2b3446;border-radius:6px;padding:6px 10px;font-size:12px;line-height:1.55;z-index:9;color:#e7e9ee;white-space:nowrap';
+  par.appendChild(tip);
+  const xh=svg.querySelector('.xh');
+  svg.style.cursor='crosshair';
+  svg.onmousemove=e=>{
+    const rc=svg.getBoundingClientRect();
+    const sx=(e.clientX-rc.left)/rc.width*g.W, sy=(e.clientY-rc.top)/rc.height*g.H;
+    if(sx<g.P||sx>g.W-g.PR||sy<g.top||sy>g.bot){tip.style.display='none';if(xh)xh.style.display='none';return;}
+    const i=Math.max(0,Math.min(g.N-1,Math.round((sx-g.P)/((g.W-g.P-g.PR)/(g.N-1)))));
+    if(xh){xh.style.display='';
+      const xi=g.P+(g.W-g.P-g.PR)*i/(g.N-1);
+      const q=c=>xh.querySelector('.'+c);
+      q('xv').setAttribute('x1',xi);q('xv').setAttribute('x2',xi);
+      q('xw').setAttribute('y1',sy);q('xw').setAttribute('y2',sy);
+      q('pr').setAttribute('y',sy-7);q('pt').setAttribute('y',sy+4);
+      q('pt').textContent=g.fmtY?g.fmtY(sy):'';}
+    tip.innerHTML=content(i);
+    tip.style.display='block';
+    const prc=par.getBoundingClientRect();
+    const px=e.clientX-prc.left, py=e.clientY-prc.top;
+    tip.style.left=(px+16+tip.offsetWidth>prc.width?Math.max(0,px-tip.offsetWidth-12):px+16)+'px';
+    tip.style.top=Math.max(0,py+12)+'px';
+  };
+  svg.onmouseleave=()=>{tip.style.display='none';if(xh)xh.style.display='none';};
+}
 function smaArr(a,n){const o=Array(a.length).fill(null);let s=0;
   for(let i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];if(i>=n-1)o[i]=s/n;}return o;}
 function candleSVG(d,cap){
   if(!d||!d.c||d.c.length<2) return '';
+  const id='cv'+(++_cid);
   const N=d.c.length,W=840,H=300,P=56,PR=12,VH=44;
   const rlo=Math.min(...d.l),rhi=Math.max(...d.h),pad=(rhi-rlo)*0.04||1;
   const lo=rlo-pad,hi=rhi+pad;
   const X=i=>P+(W-P-PR)*i/(N-1), Y=v=>H-VH-16-(H-VH-58)*(v-lo)/(hi-lo);
   const step=(()=>{const raw=(hi-lo)/5,p=Math.pow(10,Math.floor(Math.log10(raw))),r=raw/p;return (r<1.5?1:r<3?2:r<7?5:10)*p;})();
-  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  let s=`<svg id="${id}" viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
   for(let vv=Math.ceil(lo/step)*step;vv<=hi;vv+=step)
     s+=`<line x1="${P}" y1="${Y(vv).toFixed(1)}" x2="${W-PR}" y2="${Y(vv).toFixed(1)}" stroke="#1a2130"/><text x="${P-5}" y="${(Y(vv)+3).toFixed(1)}" fill="#9aa3b2" font-size="9" text-anchor="end">${Math.round(vv).toLocaleString()}</text>`;
   const ds=Math.max(1,Math.round(N/7));
@@ -273,22 +315,35 @@ function candleSVG(d,cap){
   const vmax=Math.max(...d.v)||1;
   for(let i=0;i<N;i++){const vh=d.v[i]/vmax*(VH-8);
     s+=`<rect x="${(X(i)-bw/2).toFixed(1)}" y="${(H-8-vh).toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="#2b3d5c"/>`;}
-  s+=`<text x="${P}" y="13" fill="#9aa3b2" font-size="11">${cap} · <tspan fill="#d8a33a">━</tspan>MA5 <tspan fill="#6fa8ff">━</tspan>MA20 · 하단=거래량</text></svg>`;
+  s+=`<text x="${P}" y="13" fill="#9aa3b2" font-size="11">${cap} · <tspan fill="#d8a33a">━</tspan>MA5 <tspan fill="#6fa8ff">━</tspan>MA20 · 하단=거래량 · 커서를 올리면 봉별 상세</text>`;
+  s+=XH(P,PR,W,20,H-VH-16)+`</svg>`;
+  ARMQ.push({id,fn:svg=>attachTip(svg,
+    {W,H,P,PR,top:20,bot:H-VH-16,N,
+     fmtY:sy=>Math.round(lo+((H-VH-16)-sy)*(hi-lo)/(H-VH-58)).toLocaleString()},
+    i=>{const chg=i>0?((d.c[i]/d.c[i-1]-1)*100):null;
+     return `<b>${d.dates[i]}</b>${chg==null?'':` <span style="color:${chg>=0?'#48c78e':'#f06868'}">${chg>0?'+':''}${chg.toFixed(2)}%</span>`}<br>시 ${won(d.o[i])} · 고 ${won(d.h[i])} · 저 ${won(d.l[i])}<br>종 <b>${won(d.c[i])}</b> · 거래량 ${d.v[i].toLocaleString()}`;})});
   return s;
 }
 function chartSVG(ch){
   if(!ch||!ch.closes||ch.closes.length<2) return '';
+  const id='cx'+(++_cid);
   const W=840,H=240,P=40,cs=ch.closes,n=cs.length,lv=ch.levels||{};
   const vals=cs.concat(Object.values(lv).filter(v=>v!=null));
   const lo=Math.min(...vals),hi=Math.max(...vals),span=(hi-lo)||1;
   const X=i=>P+i*(W-2*P)/(n-1), Y=v=>H-24-(v-lo)*(H-44)/span;
   const pts=cs.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
-  let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
+  let s=`<svg id="${id}" viewBox="0 0 ${W} ${H}" width="100%" style="background:#0d1016;border-radius:8px;margin-top:8px">`;
   const defs=[['target','#48c78e','목표(컨센)'],['fair_3m','#6fa8ff','모델적정3M'],['buy','#2bb3a3','매수권'],['stop','#f06868','손절(참고)']];
   for(const [k,c,lab] of defs){ if(lv[k]!=null){const y=Y(lv[k]); s+=`<line x1="${P}" y1="${y.toFixed(1)}" x2="${W-P}" y2="${y.toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="5 4"/><text x="${W-P}" y="${(y-3).toFixed(1)}" fill="${c}" font-size="11" text-anchor="end">${lab} ${lv[k].toLocaleString()}</text>`;}}
   if(ch.trend){const i0=ch.trend.start_idx; s+=`<line x1="${X(i0).toFixed(1)}" y1="${Y(ch.trend.p0).toFixed(1)}" x2="${X(n-1).toFixed(1)}" y2="${Y(ch.trend.p1).toFixed(1)}" stroke="#d8a33a" stroke-width="2"/><text x="${X(i0).toFixed(1)}" y="${(Y(ch.trend.p0)-4).toFixed(1)}" fill="#d8a33a" font-size="11">추세선</text>`;}
   s+=`<polyline points="${pts}" fill="none" stroke="#cdd3df" stroke-width="2"/>`;
-  s+=`<text x="${P}" y="14" fill="#9aa3b2" font-size="11">${hi.toLocaleString()}</text><text x="${P}" y="${H-6}" fill="#9aa3b2" font-size="11">${lo.toLocaleString()} · 최근 ${n}일</text></svg>`;
+  s+=`<text x="${P}" y="14" fill="#9aa3b2" font-size="11">${hi.toLocaleString()}</text><text x="${P}" y="${H-6}" fill="#9aa3b2" font-size="11">${lo.toLocaleString()} · 최근 ${n}일</text>`;
+  s+=XH(P,P,W,20,H-24)+`</svg>`;
+  ARMQ.push({id,fn:svg=>attachTip(svg,
+    {W,H,P,PR:P,top:20,bot:H-24,N:n,
+     fmtY:sy=>Math.round(lo+((H-24)-sy)*span/(H-44)).toLocaleString()},
+    i=>{const chg=i>0?((cs[i]/cs[i-1]-1)*100):null;
+     return `<b>${ch.dates[i]}</b>${chg==null?'':` <span style="color:${chg>=0?'#48c78e':'#f06868'}">${chg>0?'+':''}${chg.toFixed(2)}%</span>`}<br>종가 <b>${won(cs[i])}</b>${lv.target?`<br><span style="color:#9aa3b2">컨센목표까지 ${((lv.target/cs[i]-1)*100).toFixed(1)}%</span>`:''}${lv.stop?`<span style="color:#9aa3b2"> · 손절선까지 ${((lv.stop/cs[i]-1)*100).toFixed(1)}%</span>`:''}`;})});
   return s;
 }
 async function showByCode(code){
@@ -313,6 +368,7 @@ async function showByCode(code){
    <table><tr><th>지평</th><th>방향</th><th class="r">예상가(수익률)</th><th class="r">밴드</th><th class="r">방향정확도</th></tr>${hz}</table>
    <div class="disc" style="margin-top:10px">절대 방향 정확도 낮음 → 방향보다 <b>순위·컨센서스 여력</b>을 신뢰. 투자자문 아님.</div>
   </div>`;
+  armAll();
   window.scrollTo({top:0,behavior:'smooth'});
 }
 boot();
