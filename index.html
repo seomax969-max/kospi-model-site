@@ -346,6 +346,17 @@ function chartSVG(ch){
      return `<b>${ch.dates[i]}</b>${chg==null?'':` <span style="color:${chg>=0?'#48c78e':'#f06868'}">${chg>0?'+':''}${chg.toFixed(2)}%</span>`}<br>종가 <b>${won(cs[i])}</b>${lv.target?`<br><span style="color:#9aa3b2">컨센목표까지 ${((lv.target/cs[i]-1)*100).toFixed(1)}%</span>`:''}${lv.stop?`<span style="color:#9aa3b2"> · 손절선까지 ${((lv.stop/cs[i]-1)*100).toFixed(1)}%</span>`:''}`;})});
   return s;
 }
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function aiViewHTML(av){
+  if(!av) return '';
+  const rep=(av.reports||[]).map(x=>`<tr><td class="mut" style="white-space:nowrap">${esc(x.date)}</td><td>${esc(x.title)}</td><td class="mut" style="white-space:nowrap">${esc(x.broker)}</td></tr>`).join('');
+  const nws=(av.news||[]).map(x=>`<li><span class="mut">${esc(x.date)} · ${esc(x.source)}</span><br>${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener" style="color:#9bb7ff;text-decoration:none">${esc(x.title)}</a>`:esc(x.title)}${x.snippet?`<div class="mut" style="font-size:12px;margin-top:2px">${esc(x.snippet)}</div>`:''}</li>`).join('');
+  return `<h2>📰 AI 의견 (최신 리포트·뉴스 요약)</h2>
+   ${av.summary?`<div class="card" style="margin-bottom:8px">${esc(av.summary)}</div>`:''}
+   ${rep?`<div class="k">증권사 리포트 <span class="mut">(제목=증권사 한줄 논지)</span></div><table style="margin-bottom:8px"><tr><th style="width:80px">날짜</th><th>제목</th><th style="width:90px">증권사</th></tr>${rep}</table>`:''}
+   ${nws?`<div class="k">주요 뉴스</div><ul style="margin:4px 0 0 0;padding-left:18px;line-height:1.5">${nws}</ul>`:''}
+   <div class="k" style="margin-top:6px">※ 이 섹션은 네이버 금융 공개 리포트·뉴스 메타데이터를 <b>매 실행 시 자동 수집·집계</b>한 것입니다(생성형 AI 의견 아님). 목표가·투자의견은 위 '증권가 컨센서스'를 참고하세요.</div>`;
+}
 async function showByCode(code){
   let r; try{r=await (await fetch('./reports/'+code+'.json?t='+Date.now())).json();}catch(e){document.getElementById('report').innerHTML='<div class="card mut">해당 종목 리포트가 번들에 없습니다(시총 1조 미만/비대상일 수 있음).</div>';return;}
   const lab=r.label==='매수 후보'?'buy':(r.label==='회피 권고'?'avoid':'mut');
@@ -366,6 +377,7 @@ async function showByCode(code){
    ${(r.chart_d||r.chart_w)?'<div class="k" style="margin-top:4px">일봉/주봉 캔들: <span class="buy">초록=양봉</span> · <span class="avoid">빨강=음봉</span> · 점선=현재가. 차트 해석은 참고용(예측력 비검증) — 판단은 순위·회피 신호 우선.</div>':''}
    <h2>가격 방향성·예상가 (단/중/장기)</h2>
    <table><tr><th>지평</th><th>방향</th><th class="r">예상가(수익률)</th><th class="r">밴드</th><th class="r">방향정확도</th></tr>${hz}</table>
+   ${aiViewHTML(r.ai_view)}
    <div class="disc" style="margin-top:10px">절대 방향 정확도 낮음 → 방향보다 <b>순위·컨센서스 여력</b>을 신뢰. 투자자문 아님.</div>
   </div>`;
   armAll();
